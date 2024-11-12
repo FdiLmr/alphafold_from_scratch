@@ -1,1 +1,8 @@
 calc.ipynb
+/machine_learning
+.gitignore
+
+__pycache__/
+*/__pycache__/
+data/
+*/data/

@@ -33,8 +33,16 @@ def affine_forward(x, W, b):
     #       backward propagation.                                            #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    # Compute forward pass using einsum for matrix multiplication
+    # 'ni,oi->no' means:
+    # n: batch dimension
+    # i: input features
+    # o: output features
+    print(f"x shape: {x.shape}, W shape: {W.shape}, b shape: {b.shape}")  # Debugging shapes
+    out = torch.einsum('ni,oi->no', x, W) + b
+    
+    # Cache the inputs for use in the backward pass
+    cache = (x, W)
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -68,8 +76,18 @@ def affine_backward(dout, cache):
     #       to the input and output shapes to guide your implementation.     #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    # Unpack the cache
+    x, W, b = cache
+    
+    # Compute gradients
+    # dx: dout * W^T -> einsum('no,oi->ni')
+    dx = torch.einsum('no,oi->ni', dout, W)
+    
+    # dW: x^T * dout -> einsum('ni,no->oi')
+    dW = torch.einsum('ni,no->oi', x, dout)
+    
+    # db: sum dout across batch dimension
+    db = torch.sum(dout, dim=0)
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -100,8 +118,8 @@ def relu_forward(x):
     #       backward propagation.                                            #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    out = torch.maximum(x, torch.tensor(0.0))  # Element-wise max with 0
+    cache = x  # Cache the input for backpropagation
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -133,8 +151,9 @@ def relu_backward(dout, cache):
     #       We will assume a slope of 0 for the kink at x=0.                 #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    x = cache
+    dx = dout.clone()  # Start with upstream gradient
+    dx[x <= 0] = 0     # Zero out gradient where x was not positive
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -164,8 +183,8 @@ def sigmoid_forward(x):
     #       backward propagation.                                            #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    out = 1 / (1 + torch.exp(-x))  # Apply the sigmoid function element-wise
+    cache = out  # Cache the output for backpropagation
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -196,8 +215,8 @@ def sigmoid_backward(dout, cache):
     #       of the sigmoid function.                                         #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    out = cache  # Cached sigmoid output from the forward pass
+    dx = dout * out * (1 - out)  # Element-wise gradient calculation
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
@@ -232,9 +251,16 @@ def l2_loss(y, y_hat):
     #        compute the gradient of the loss w.r.t. y.                      #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    #Convert y_hat (class indices) to one-hot encoding
+    y_one_hot = nn.functional.one_hot(y_hat, num_classes=y.shape[1])
 
+    #Compute L2 Loss
+    diff = y - y_one_hot
+    loss = torch.sum(diff ** 2) / y.shape[0]  # Mean L2 loss
+
+    #Compute the gradient of the loss w.r.t. y
+    dy = (2 / y.shape[0]) * diff
+    
     ##########################################################################
     #               END OF YOUR CODE                                         #
     ##########################################################################
@@ -263,9 +289,10 @@ def calculate_accuracy(model, input_data, labels):
     #        the label agreed with the inferred class on average.            #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
-
+    out, _ = model.forward(input_data)
+    inferred_class = torch.argmax(out, dim=-1)
+    accuracy = (inferred_class == labels).float().mean()
+    
     ##########################################################################
     #               END OF YOUR CODE                                         #
     ##########################################################################
@@ -297,8 +324,15 @@ class TwoLayerNet:
         #           std dev sqrt(2/(c_in+c_out)).                                #
         ##########################################################################
 
-        # Replace "pass" statement with your code
-        pass
+        # Initialize weights and biases for the first layer
+        std_W1 = torch.sqrt(torch.tensor(2.0 / inp_dim))
+        self.params['W1'] = torch.randn(inp_dim, hidden_dim) * std_W1  # He initialization
+        self.params['b1'] = torch.zeros(hidden_dim)  # Zero-initialized bias
+
+        # Initialize weights and biases for the second layer
+        std_W2 = torch.sqrt(torch.tensor(2.0 / (hidden_dim + out_dim)))
+        self.params['W2'] = torch.randn(hidden_dim, out_dim) * std_W2  # Xavier initialization
+        self.params['b2'] = torch.zeros(out_dim)  # Zero-initialized bias
 
         ##########################################################################
         #               END OF YOUR CODE                                         #
@@ -325,8 +359,13 @@ class TwoLayerNet:
         #        Collect all the caches in a singular cache for backprop.        #
         ##########################################################################
 
-        # Replace "pass" statement with your code
-        pass
+        x, hidden_cache = affine_forward(x, self.params['W1'], self.params['b1'])
+        x, relu_cache = relu_forward(x)
+        x, out_cache = affine_forward(x, self.params['W2'], self.params['b2'])
+        x, sigmoid_cache = sigmoid_forward(x)
+        out = x
+
+        cache = (hidden_cache, relu_cache, out_cache, sigmoid_cache)
 
         ##########################################################################
         #               END OF YOUR CODE                                         #
@@ -349,9 +388,24 @@ class TwoLayerNet:
         #        keys as for the parameters.                                     #
         ##########################################################################
 
-        # Replace "pass" statement with your code
-        pass
+        # Unpack the cache
+        hidden_cache, relu_cache, out_cache, sigmoid_cache = cache
 
+        # Step 1: Backprop through the Sigmoid activation
+        dx = sigmoid_backward(dout, sigmoid_cache)
+
+        # Step 2: Backprop through the second affine layer
+        dx, dW, db = affine_backward(dx, out_cache)
+        self.grads['W2'] = dW
+        self.grads['b2'] = db
+
+        # Step 3: Backprop through the ReLU activation
+        dx = relu_backward(dx, relu_cache)
+
+        # Step 4: Backprop through the first affine layer
+        dx, dW, db = affine_backward(dx, hidden_cache)
+        self.grads['W1'] = dW
+        self.grads['b1'] = db
         ##########################################################################
         #               END OF YOUR CODE                                         #
         ##########################################################################
@@ -395,8 +449,27 @@ def train_model(model, train_data, train_labels, validation_data, validation_lab
     #           and print them.                                              #
     ##########################################################################
 
-    # Replace "pass" statement with your code
-    pass
+    fitting_length = batch_size * (N // batch_size)
+    data_batches = train_data[:fitting_length].split(batch_size)
+    label_batches = train_labels[:fitting_length].split(batch_size)
+
+    for i in range(n_epochs):
+        print(f'Starting with epoch {i}...')
+        for data, label in zip(data_batches, label_batches):
+            out, cache = model.forward(data)
+            loss, dout = l2_loss(out, label)
+            model.backward(dout,  cache)
+
+            for key, param in model.params.items():
+                grad = model.grads[key]
+                param -= grad * learning_rate
+
+        train_accuracy = calculate_accuracy(model, train_data, train_labels)
+        validation_accuracy = calculate_accuracy(
+            model, validation_data, validation_labels)
+        print(f'    Train accuracy: {train_accuracy:.2f}')
+        print(f'    Validation accuracy: {validation_accuracy:.2f}')
+        print('')
 
     ##########################################################################
     #               END OF YOUR CODE                                         #
